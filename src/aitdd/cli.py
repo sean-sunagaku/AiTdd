@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .planning import draft_spec_yaml
 from .runner import TddLoop, TddLoopConfig
 
 
@@ -18,6 +19,14 @@ def build_parser() -> argparse.ArgumentParser:
     resume = subparsers.add_parser("resume", help="resume from .aitdd/progress.json")
     _add_run_arguments(resume)
     resume.set_defaults(resume=True)
+
+    plan = subparsers.add_parser("plan", help="draft an aitdd.yaml spec with Codex")
+    plan.add_argument("goal")
+    plan.add_argument("--workdir", default=".")
+    plan.add_argument("--output", type=Path, default=Path("aitdd.yaml"))
+    plan.add_argument("--codex-model")
+    plan.add_argument("--dry-run", action="store_true")
+    plan.add_argument("--force", action="store_true", help="overwrite an existing output file")
     return parser
 
 
@@ -65,6 +74,21 @@ def main(argv: list[str] | None = None) -> int:
                 f"minimal_green={result.review_gate.minimal_green} "
                 f"boundary_ok={result.review_gate.acceptance_unit_boundary_ok}"
             )
+        return 0
+    if args.command == "plan":
+        workdir = Path(args.workdir).resolve()
+        output = args.output if args.output.is_absolute() else workdir / args.output
+        if output.exists() and not args.force:
+            raise SystemExit(f"{output} already exists. Use --force to overwrite it.")
+        text = draft_spec_yaml(
+            args.goal,
+            workdir=workdir,
+            codex_model=args.codex_model,
+            dry_run=args.dry_run,
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text)
+        print(f"wrote {output}")
         return 0
     return 2
 

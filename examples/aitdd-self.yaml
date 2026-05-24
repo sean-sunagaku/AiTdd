@@ -1,0 +1,72 @@
+goal: |
+  AiTDD 自身の機能開発を AiTDD の RED-GREEN-REFACTOR で進める。
+  Codex は plan/review、Cursor は実装を担当し、不足テスト観点は test_backlog に積む。
+
+public_api:
+  - "aitdd plan <goal> --output aitdd.yaml"
+  - "aitdd run --spec aitdd.yaml"
+  - "aitdd resume --spec aitdd.yaml"
+
+constraints:
+  - 1 cycle で追加する public behavior は 1 つだけ
+  - RED では先に CLI または runner の観測可能なテストを書く
+  - GREEN はその失敗を通す最小実装だけにする
+  - Codex review で見つかった不足テスト観点は test_backlog 経由で次の RED にする
+  - REFACTOR フェーズではテストファイルを変更しない
+
+forbidden:
+  - テスト無しの CLI 追加
+  - 複数 subcommand の同時追加
+  - Cursor 実装担当による計画やレビューの上書き
+  - Codex 計画担当によるファイル編集
+
+acceptance_tests:
+  - tests/test_cli.py
+  - tests/test_runner.py
+
+unit_tests:
+  - tests/test_spec.py
+  - tests/test_review.py
+  - tests/test_hook_policy.py
+
+done_when:
+  - all_cycles_complete
+  - acceptance_tests_pass
+  - no_review_gate_failures
+
+acceptance_test_command: "uv run pytest"
+
+cycles:
+  - behavior: plan subcommand が goal から valid な aitdd.yaml draft を作る
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - invalid choice
+        - AssertionError
+      must_not_include:
+        - SyntaxError
+    notes:
+      - tests/test_cli.py に dry-run の RED を追加する
+      - Codex SDK を使う本番経路と dry-run の検証経路を分ける
+
+  - behavior: plan subcommand は既存ファイルを --force 無しで上書きしない
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - already exists
+        - AssertionError
+      must_not_include:
+        - SyntaxError
+    notes:
+      - 破壊的な spec 上書きを防ぐ
+
+  - behavior: AiTDD 自身の開発 spec を examples に持つ
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - aitdd-self.yaml
+        - AssertionError
+      must_not_include:
+        - SyntaxError
+    notes:
+      - self-dogfood の入口を README から辿れるようにする

@@ -24,3 +24,11 @@ cycles:
     assert spec.cycles[0].behavior == "Money stores amount"
     assert spec.cycles[0].expected_red_failure is not None
     assert spec.cycles[0].expected_red_failure.must_include == ["ModuleNotFoundError"]
+
+
+def test_self_dogfood_spec_is_valid() -> None:
+    spec = AitddSpec.from_file(Path("examples/aitdd-self.yaml"))
+
+    assert "AiTDD 自身" in spec.goal
+    assert "acceptance_tests_pass" in spec.done_when
+    assert spec.cycles[0].behavior.startswith("plan subcommand")
