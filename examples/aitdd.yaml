@@ -1,0 +1,76 @@
+goal: |
+  Money クラスを t-wada 流 TDD で育てる。
+  amount と currency を持ち、同じ通貨の加算、異なる通貨の拒否、負数拒否を扱う。
+
+public_api:
+  - "Money(amount: int, currency: str)"
+  - "Money.add(other: Money) -> Money"
+  - CurrencyMismatchError
+
+constraints:
+  - 1 サイクルで追加する public behavior は 1 つだけ
+  - 最初の GREEN は仮実装を許可する
+  - acceptance test は workflows、unit test は tests に置く
+
+forbidden:
+  - テストされていない currency conversion
+  - REFACTOR フェーズでのテスト変更
+
+acceptance_tests:
+  - workflows/test_money_workflow.py
+
+unit_tests:
+  - tests/test_money.py
+
+done_when:
+  - all_cycles_complete
+  - acceptance_tests_pass
+  - no_review_gate_failures
+
+acceptance_test_command: "pytest workflows"
+
+cycles:
+  - behavior: Money が amount と currency を保持する
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - ModuleNotFoundError
+        - ImportError
+        - AttributeError
+      must_not_include:
+        - SyntaxError
+    notes:
+      - tests/test_money.py に最小テストを追加する
+
+  - behavior: 同じ値の Money が等価になる
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - AssertionError
+      must_not_include:
+        - SyntaxError
+    notes:
+      - まだ add は実装しない
+
+  - behavior: 同じ通貨同士を add できる
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - AttributeError
+        - AssertionError
+
+  - behavior: 違う通貨の add は CurrencyMismatchError
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - CurrencyMismatchError
+        - Failed
+        - AssertionError
+
+  - behavior: 負数 amount は生成できない
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - ValueError
+        - Failed
+        - AssertionError

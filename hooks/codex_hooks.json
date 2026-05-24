@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python hooks/aitdd_guard.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

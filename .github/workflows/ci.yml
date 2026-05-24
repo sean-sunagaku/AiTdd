@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Python dependencies
+        run: uv sync --dev
+      - name: Install Node SDK bridges
+        run: npm ci
+      - name: Run tests
+        run: uv run pytest
+      - name: Run lint
+        run: uv run ruff check .
