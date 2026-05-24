@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from aitdd.agents import AgentResult
@@ -118,3 +119,48 @@ def test_review_gate_blocks_non_minimal_green(tmp_path: Path) -> None:
         assert "implemented behavior without RED" in str(exc)
     else:
         raise AssertionError("review gate should fail")
+
+
+def test_missing_test_perspectives_become_next_red_cycle(tmp_path: Path) -> None:
+    missing_review = (
+        '{"complete": true, "reason": "cycle ok but boundary test is missing", '
+        '"one_behavior_only": true, "minimal_green": true, '
+        '"tests_unchanged_in_refactor": true, "acceptance_unit_boundary_ok": true, '
+        '"forbidden_respected": true, "issues": [], "needs_more_tests": true, '
+        '"missing_test_perspectives": ['
+        '{"behavior": "zero amount is valid", '
+        '"reason": "boundary value is not fixed", '
+        '"suggested_test": "Money(0, \\"USD\\") is accepted", '
+        '"priority": "high"}]}'
+    )
+    planner = FakeAgent(
+        "codex",
+        [
+            "plan initial behavior",
+            missing_review,
+            "plan zero amount boundary",
+            PASSING_REVIEW_JSON,
+        ],
+    )
+    implementer = FakeAgent(
+        "cursor",
+        ["red ok", "green ok", "refactor ok", "red ok", "green ok"],
+    )
+    loop = TddLoop(
+        TddLoopConfig(
+            goal="build Money",
+            workdir=tmp_path,
+            dry_run=True,
+            max_cycles=3,
+        ),
+        planner=planner,
+        implementer=implementer,
+    )
+
+    results = loop.run()
+
+    assert len(results) == 2
+    assert "zero amount is valid" in planner.prompts[2]
+    progress = json.loads((tmp_path / ".aitdd" / "progress.json").read_text())
+    assert progress["cycles"][1]["source"] == "test_backlog"
+    assert progress["test_backlog"][0]["status"] == "completed"

@@ -45,6 +45,14 @@ class CycleResult:
     review_gate: ReviewGate
 
 
+@dataclass(frozen=True)
+class CycleSubject:
+    behavior: str
+    source: str
+    cycle: CycleSpec | None = None
+    backlog_item: dict[str, object] | None = None
+
+
 class TddLoop:
     def __init__(
         self,
@@ -80,18 +88,20 @@ class TddLoop:
         current_progress: CycleProgress | None = None
         try:
             for index in range(start_index, self.config.max_cycles + 1):
-                cycle = self._cycle_for(index)
-                plan = self._plan(index, cycle)
+                subject = self._cycle_subject(index)
+                plan = self._plan(index, subject)
                 current_progress = self.progress.start_cycle(
                     index,
-                    self._behavior(index, cycle),
+                    subject.behavior,
                     plan,
+                    source=subject.source,
+                    backlog_item_id=_backlog_item_id(subject.backlog_item),
                 )
 
                 self._implement(TddPhase.RED, plan)
-                red = self._run_tests(TddPhase.RED, cycle)
+                red = self._run_tests(TddPhase.RED, subject.cycle)
                 self.progress.record_phase(current_progress, "red", red)
-                self._require(TddPhase.RED, red, cycle)
+                self._require(TddPhase.RED, red, subject.cycle)
 
                 self._implement(TddPhase.GREEN, plan)
                 green = self._run_tests(TddPhase.GREEN)
@@ -103,7 +113,7 @@ class TddLoop:
                 self.progress.record_review(current_progress, review_gate)
                 self._require_review_gate(review_gate)
 
-                complete = self._is_complete(review_gate, index)
+                complete = self._is_complete(review_gate, subject)
                 if not complete:
                     tests_before = self._snapshot_test_files()
                     self._implement(TddPhase.REFACTOR, review)
@@ -127,27 +137,37 @@ class TddLoop:
             raise
         return results
 
-    def _cycle_for(self, index: int) -> CycleSpec | None:
-        if not self.spec or index > len(self.spec.cycles):
-            return None
-        return self.spec.cycles[index - 1]
+    def _cycle_subject(self, index: int) -> CycleSubject:
+        backlog_item = self.progress.claim_next_test_perspective(index)
+        if backlog_item:
+            return CycleSubject(
+                behavior=str(backlog_item.get("behavior") or f"missing test {index}"),
+                source="test_backlog",
+                backlog_item=backlog_item,
+            )
 
-    def _behavior(self, index: int, cycle: CycleSpec | None) -> str:
-        return cycle.behavior if cycle else f"cycle {index}"
+        if self.spec and self.spec.cycles:
+            spec_index = self.progress.completed_spec_cycle_count()
+            if spec_index < len(self.spec.cycles):
+                cycle = self.spec.cycles[spec_index]
+                return CycleSubject(
+                    behavior=cycle.behavior,
+                    source="spec",
+                    cycle=cycle,
+                )
 
-    def _plan(self, index: int, cycle: CycleSpec | None) -> str:
+        return CycleSubject(behavior=f"cycle {index}", source="codex")
+
+    def _plan(self, index: int, subject: CycleSubject) -> str:
         spec_text = self.spec.describe() if self.spec else f"Goal:\n{self.config.goal}"
-        cycle_text = (
-            self._cycle_text(cycle)
-            if cycle
-            else "Codex が次の最小 public behavior を 1 つだけ選んでください。"
-        )
+        cycle_text = self._subject_text(index, subject)
         prompt = f"""
 あなたは t-wada さんの TDD の進め方を尊重する計画担当です。
 作業ディレクトリを読み、次の最小の RED を 1 つだけ計画してください。
 実装やファイル編集は絶対にしないでください。
 1 サイクルで追加してよい public behavior は 1 つだけです。
 acceptance test と unit test の境界を守ってください。
+Codex レビューで不足テスト観点が見つかった場合は、それを次の RED として扱います。
 
 仕様:
 {spec_text}
@@ -164,6 +184,25 @@ acceptance test と unit test の境界を守ってください。
 """.strip()
         return self._run_agent(self.planner, prompt).stdout
 
+    def _subject_text(self, index: int, subject: CycleSubject) -> str:
+        if subject.backlog_item:
+            return self._backlog_text(subject.backlog_item)
+        if subject.cycle:
+            return self._cycle_text(subject.cycle)
+        backlog = self.progress.pending_test_perspectives()
+        if backlog:
+            lines = [
+                "Codex レビューが見つけた不足テスト観点があります。",
+                "次の RED は pending backlog から 1 つだけ選んでください。",
+            ]
+            lines.extend(
+                f"- {item.get('priority', 'medium')} {item.get('behavior')}: "
+                f"{item.get('suggested_test')}"
+                for item in backlog
+            )
+            return "\n".join(lines)
+        return f"Cycle {index}: Codex が次の最小 public behavior を 1 つだけ選んでください。"
+
     def _cycle_text(self, cycle: CycleSpec) -> str:
         lines = [f"Behavior: {cycle.behavior}"]
         if cycle.expected_red_failure:
@@ -177,6 +216,17 @@ acceptance test と unit test の境界を守ってください。
             lines.append("Notes:")
             lines.extend(f"- {item}" for item in cycle.notes)
         return "\n".join(lines)
+
+    def _backlog_text(self, item: dict[str, object]) -> str:
+        return "\n".join(
+            [
+                "Codex レビューが追加した不足テスト観点です。",
+                f"Behavior: {item.get('behavior')}",
+                f"Reason: {item.get('reason')}",
+                f"Suggested test: {item.get('suggested_test')}",
+                f"Priority: {item.get('priority', 'medium')}",
+            ]
+        )
 
     def _implement(self, phase: TddPhase, context: str) -> None:
         prompts = {
@@ -219,6 +269,13 @@ acceptance test と unit test の境界を守ってください。
 - REFACTOR でテストが変更されていないか
 - 受け入れテストとユニットテストの境界が守られているか
 - forbidden に触れていないか
+- 仕様、実装、既存テストから見て足りないテスト観点がないか
+
+足りないテスト観点がある場合:
+- gate 自体が通るなら issues ではなく missing_test_perspectives に入れてください
+- needs_more_tests を true にしてください
+- missing_test_perspectives は次 cycle の RED 候補になります
+- 1 要素は 1 つの public behavior または 1 つの境界条件だけにしてください
 
 ゴール:
 {goal}
@@ -237,9 +294,14 @@ returncode: {test_run.returncode}
             return self.planner.run(prompt, self.config.workdir, REVIEW_SCHEMA).stdout
         return self._run_agent(self.planner, prompt).stdout
 
-    def _is_complete(self, review_gate: ReviewGate, index: int) -> bool:
+    def _is_complete(self, review_gate: ReviewGate, subject: CycleSubject) -> bool:
+        if review_gate.needs_more_tests or self.progress.has_pending_test_backlog():
+            return False
         if self.spec and self.spec.cycles:
-            return index >= len(self.spec.cycles)
+            completed_spec_cycles = self.progress.completed_spec_cycle_count()
+            if subject.source == "spec":
+                completed_spec_cycles += 1
+            return completed_spec_cycles >= len(self.spec.cycles)
         return review_gate.complete
 
     def _require_done_when(self) -> None:
@@ -339,3 +401,10 @@ returncode: {test_run.returncode}
                 f"{result.role} failed with exit code {result.returncode}\n{result.stderr}"
             )
         return result
+
+
+def _backlog_item_id(item: dict[str, object] | None) -> str | None:
+    if not item:
+        return None
+    value = item.get("id")
+    return str(value) if value is not None else None
