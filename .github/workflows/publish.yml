@@ -13,6 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - name: Install Python dependencies
+        run: uv sync --dev
       - name: Build
         run: uv run python -m build
       - name: Check distributions
