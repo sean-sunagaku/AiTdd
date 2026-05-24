@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from aitdd.agents import AgentResult
-from aitdd.review import PASSING_REVIEW_JSON
+from aitdd.review import PASSING_FOLLOW_UP_JSON, PASSING_REVIEW_JSON
 from aitdd.runner import TddLoop, TddLoopConfig
 
 
@@ -26,6 +26,7 @@ def test_dry_run_loop_uses_codex_for_plan_review_and_cursor_for_implementation(
         [
             "write the first failing test",
             PASSING_REVIEW_JSON,
+            PASSING_FOLLOW_UP_JSON,
         ],
     )
     implementer = FakeAgent("cursor", ["red ok", "green ok"])
@@ -44,7 +45,7 @@ def test_dry_run_loop_uses_codex_for_plan_review_and_cursor_for_implementation(
 
     assert len(results) == 1
     assert results[0].complete is True
-    assert len(planner.prompts) == 2
+    assert len(planner.prompts) == 3
     assert len(implementer.prompts) == 2
     assert "現在フェーズ: RED" in implementer.prompts[0]
     assert "現在フェーズ: GREEN" in implementer.prompts[1]
@@ -68,6 +69,7 @@ cycles:
         [
             "plan",
             PASSING_REVIEW_JSON,
+            PASSING_FOLLOW_UP_JSON,
         ],
     )
     implementer = FakeAgent("cursor", ["red ok", "green ok"])
@@ -138,8 +140,10 @@ def test_missing_test_perspectives_become_next_red_cycle(tmp_path: Path) -> None
         [
             "plan initial behavior",
             missing_review,
+            PASSING_FOLLOW_UP_JSON,
             "plan zero amount boundary",
             PASSING_REVIEW_JSON,
+            PASSING_FOLLOW_UP_JSON,
         ],
     )
     implementer = FakeAgent(
@@ -164,3 +168,45 @@ def test_missing_test_perspectives_become_next_red_cycle(tmp_path: Path) -> None
     progress = json.loads((tmp_path / ".aitdd" / "progress.json").read_text())
     assert progress["cycles"][1]["source"] == "test_backlog"
     assert progress["test_backlog"][0]["status"] == "completed"
+
+
+def test_follow_up_missing_requirement_becomes_next_red_cycle(tmp_path: Path) -> None:
+    missing_requirement = (
+        '{"requirements_sufficient": false, "needs_more_requirements": true, '
+        '"needs_more_tests": false, "missing_requirements": ['
+        '{"requirement": "currency must be non-empty", '
+        '"reason": "invalid currency values are not specified", '
+        '"suggested_behavior": "empty currency is rejected", '
+        '"priority": "high"}], '
+        '"additional_test_perspectives": [], "notes": []}'
+    )
+    planner = FakeAgent(
+        "codex",
+        [
+            "plan initial behavior",
+            PASSING_REVIEW_JSON,
+            missing_requirement,
+            "plan empty currency requirement",
+            PASSING_REVIEW_JSON,
+            PASSING_FOLLOW_UP_JSON,
+        ],
+    )
+    implementer = FakeAgent("cursor", ["red ok", "green ok", "red ok", "green ok"])
+    loop = TddLoop(
+        TddLoopConfig(
+            goal="build Money",
+            workdir=tmp_path,
+            dry_run=True,
+            max_cycles=3,
+        ),
+        planner=planner,
+        implementer=implementer,
+    )
+
+    results = loop.run()
+
+    assert len(results) == 2
+    assert "empty currency is rejected" in planner.prompts[3]
+    progress = json.loads((tmp_path / ".aitdd" / "progress.json").read_text())
+    assert progress["cycles"][1]["source"] == "requirements_backlog"
+    assert progress["requirements_backlog"][0]["status"] == "completed"

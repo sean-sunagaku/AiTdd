@@ -48,11 +48,53 @@ REVIEW_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
+FOLLOW_UP_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "requirements_sufficient": {"type": "boolean"},
+        "needs_more_requirements": {"type": "boolean"},
+        "needs_more_tests": {"type": "boolean"},
+        "missing_requirements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "requirement": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "suggested_behavior": {"type": "string"},
+                    "priority": {"type": "string"},
+                },
+                "required": ["requirement", "reason", "suggested_behavior", "priority"],
+                "additionalProperties": False,
+            },
+        },
+        "additional_test_perspectives": REVIEW_SCHEMA["properties"][
+            "missing_test_perspectives"
+        ],
+        "notes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "requirements_sufficient",
+        "needs_more_requirements",
+        "needs_more_tests",
+        "missing_requirements",
+        "additional_test_perspectives",
+        "notes",
+    ],
+    "additionalProperties": False,
+}
+
 PASSING_REVIEW_JSON = (
     '{"complete": true, "reason": "dry run", "one_behavior_only": true, '
     '"minimal_green": true, "tests_unchanged_in_refactor": true, '
     '"acceptance_unit_boundary_ok": true, "forbidden_respected": true, '
     '"issues": [], "needs_more_tests": false, "missing_test_perspectives": []}'
+)
+
+PASSING_FOLLOW_UP_JSON = (
+    '{"requirements_sufficient": true, "needs_more_requirements": false, '
+    '"needs_more_tests": false, "missing_requirements": [], '
+    '"additional_test_perspectives": [], "notes": []}'
 )
 
 
@@ -61,6 +103,14 @@ class MissingTestPerspective:
     behavior: str
     reason: str
     suggested_test: str
+    priority: str = "medium"
+
+
+@dataclass(frozen=True)
+class MissingRequirement:
+    requirement: str
+    reason: str
+    suggested_behavior: str
     priority: str = "medium"
 
 
@@ -125,6 +175,40 @@ class ReviewGate:
         return f"Codex review gate failed: {', '.join(failed)}. {details}"
 
 
+@dataclass(frozen=True)
+class FollowUpReview:
+    requirements_sufficient: bool
+    needs_more_requirements: bool
+    needs_more_tests: bool
+    missing_requirements: list[MissingRequirement] = field(default_factory=list)
+    additional_test_perspectives: list[MissingTestPerspective] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_text(cls, text: str) -> FollowUpReview:
+        value = _parse_json_object(text)
+        missing_requirements = [
+            _missing_requirement(item) for item in value.get("missing_requirements", [])
+        ]
+        additional_tests = [
+            _missing_test_perspective(item)
+            for item in value.get("additional_test_perspectives", [])
+        ]
+        return cls(
+            requirements_sufficient=bool(value.get("requirements_sufficient")),
+            needs_more_requirements=bool(value.get("needs_more_requirements"))
+            or bool(missing_requirements),
+            needs_more_tests=bool(value.get("needs_more_tests")) or bool(additional_tests),
+            missing_requirements=missing_requirements,
+            additional_test_perspectives=additional_tests,
+            notes=[str(item) for item in value.get("notes", [])],
+        )
+
+    @property
+    def needs_more_work(self) -> bool:
+        return self.needs_more_requirements or self.needs_more_tests
+
+
 def _parse_json_object(text: str) -> dict[str, Any]:
     start = text.find("{")
     end = text.rfind("}")
@@ -143,5 +227,16 @@ def _missing_test_perspective(value: Any) -> MissingTestPerspective:
         behavior=str(value.get("behavior") or "").strip(),
         reason=str(value.get("reason") or "").strip(),
         suggested_test=str(value.get("suggested_test") or "").strip(),
+        priority=str(value.get("priority") or "medium").strip() or "medium",
+    )
+
+
+def _missing_requirement(value: Any) -> MissingRequirement:
+    if not isinstance(value, dict):
+        raise ValueError("missing_requirements must contain objects")
+    return MissingRequirement(
+        requirement=str(value.get("requirement") or "").strip(),
+        reason=str(value.get("reason") or "").strip(),
+        suggested_behavior=str(value.get("suggested_behavior") or "").strip(),
         priority=str(value.get("priority") or "medium").strip() or "medium",
     )

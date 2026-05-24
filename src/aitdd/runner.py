@@ -16,7 +16,14 @@ from .agents import (
 )
 from .hook_policy import PhaseTestResult, TddPhase, evaluate_phase
 from .progress import CycleProgress, ProgressStore
-from .review import PASSING_REVIEW_JSON, REVIEW_SCHEMA, ReviewGate
+from .review import (
+    FOLLOW_UP_SCHEMA,
+    PASSING_FOLLOW_UP_JSON,
+    PASSING_REVIEW_JSON,
+    REVIEW_SCHEMA,
+    FollowUpReview,
+    ReviewGate,
+)
 from .spec import AitddSpec, CycleSpec
 
 
@@ -43,6 +50,7 @@ class CycleResult:
     complete: bool
     review: str
     review_gate: ReviewGate
+    follow_up: FollowUpReview
 
 
 @dataclass(frozen=True)
@@ -51,6 +59,7 @@ class CycleSubject:
     source: str
     cycle: CycleSpec | None = None
     backlog_item: dict[str, object] | None = None
+    requirement_item: dict[str, object] | None = None
 
 
 class TddLoop:
@@ -95,7 +104,9 @@ class TddLoop:
                     subject.behavior,
                     plan,
                     source=subject.source,
-                    backlog_item_id=_backlog_item_id(subject.backlog_item),
+                    backlog_item_id=_backlog_item_id(
+                        subject.backlog_item or subject.requirement_item
+                    ),
                 )
 
                 self._implement(TddPhase.RED, plan)
@@ -113,7 +124,7 @@ class TddLoop:
                 self.progress.record_review(current_progress, review_gate)
                 self._require_review_gate(review_gate)
 
-                complete = self._is_complete(review_gate, subject)
+                complete = self._is_complete(review_gate, None, subject)
                 if not complete:
                     tests_before = self._snapshot_test_files()
                     self._implement(TddPhase.REFACTOR, review)
@@ -122,13 +133,27 @@ class TddLoop:
                 self.progress.record_phase(current_progress, "refactor", refactor)
                 self._require(TddPhase.REFACTOR, refactor)
 
+                follow_up_text = self._follow_up(index, plan, review, refactor)
+                follow_up = FollowUpReview.from_text(follow_up_text)
+                self.progress.record_follow_up(current_progress, follow_up)
+                complete = self._is_complete(review_gate, follow_up, subject)
+
                 if complete:
                     self._require_done_when()
 
                 status = "completed" if complete else "completed"
                 self.progress.finish_cycle(current_progress, status)
                 results.append(
-                    CycleResult(index, red, green, refactor, complete, review, review_gate)
+                    CycleResult(
+                        index,
+                        red,
+                        green,
+                        refactor,
+                        complete,
+                        review,
+                        review_gate,
+                        follow_up,
+                    )
                 )
                 if complete:
                     break
@@ -138,6 +163,18 @@ class TddLoop:
         return results
 
     def _cycle_subject(self, index: int) -> CycleSubject:
+        requirement_item = self.progress.claim_next_requirement(index)
+        if requirement_item:
+            return CycleSubject(
+                behavior=str(
+                    requirement_item.get("suggested_behavior")
+                    or requirement_item.get("requirement")
+                    or f"missing requirement {index}"
+                ),
+                source="requirements_backlog",
+                requirement_item=requirement_item,
+            )
+
         backlog_item = self.progress.claim_next_test_perspective(index)
         if backlog_item:
             return CycleSubject(
@@ -185,6 +222,8 @@ Codex レビューで不足テスト観点が見つかった場合は、それ�
         return self._run_agent(self.planner, prompt).stdout
 
     def _subject_text(self, index: int, subject: CycleSubject) -> str:
+        if subject.requirement_item:
+            return self._requirement_text(subject.requirement_item)
         if subject.backlog_item:
             return self._backlog_text(subject.backlog_item)
         if subject.cycle:
@@ -224,6 +263,17 @@ Codex レビューで不足テスト観点が見つかった場合は、それ�
                 f"Behavior: {item.get('behavior')}",
                 f"Reason: {item.get('reason')}",
                 f"Suggested test: {item.get('suggested_test')}",
+                f"Priority: {item.get('priority', 'medium')}",
+            ]
+        )
+
+    def _requirement_text(self, item: dict[str, object]) -> str:
+        return "\n".join(
+            [
+                "Follow Up が追加した不足要件です。",
+                f"Requirement: {item.get('requirement')}",
+                f"Reason: {item.get('reason')}",
+                f"Suggested behavior: {item.get('suggested_behavior')}",
                 f"Priority: {item.get('priority', 'medium')}",
             ]
         )
@@ -294,8 +344,59 @@ returncode: {test_run.returncode}
             return self.planner.run(prompt, self.config.workdir, REVIEW_SCHEMA).stdout
         return self._run_agent(self.planner, prompt).stdout
 
-    def _is_complete(self, review_gate: ReviewGate, subject: CycleSubject) -> bool:
+    def _follow_up(
+        self,
+        index: int,
+        plan: str,
+        review: str,
+        test_run: PhaseTestResult,
+    ) -> str:
+        if self.config.dry_run and isinstance(self.planner, DryRunAgent):
+            return PASSING_FOLLOW_UP_JSON
+
+        goal = self.spec.describe() if self.spec else self.config.goal
+        prompt = f"""
+あなたは Codex Follow Up 担当です。
+今回の RED-GREEN-REFACTOR 後に、要件やテスト観点の抜け漏れを振り返ってください。
+実装やファイル編集は絶対にしないでください。
+
+確認すること:
+- ゴールや spec に対して、まだ明文化されていない要件がないか
+- 今回の実装に対して、追加で RED にすべき境界値、例外系、責務分離のテストがないか
+- 見つけたものは 1 項目 1 behavior または 1 テスト観点に分ける
+- 既に covered なものは重複して返さない
+
+ゴール:
+{goal}
+
+サイクル: {index}
+計画:
+{plan}
+
+Codex review:
+{review}
+
+テスト結果:
+command: {test_run.command}
+returncode: {test_run.returncode}
+
+最後は必ず JSON schema に従った JSON だけを返してください。
+""".strip()
+        if isinstance(self.planner, CodexSdkAgent):
+            return self.planner.run(prompt, self.config.workdir, FOLLOW_UP_SCHEMA).stdout
+        return self._run_agent(self.planner, prompt).stdout
+
+    def _is_complete(
+        self,
+        review_gate: ReviewGate,
+        follow_up: FollowUpReview | None,
+        subject: CycleSubject,
+    ) -> bool:
         if review_gate.needs_more_tests or self.progress.has_pending_test_backlog():
+            return False
+        if self.progress.has_pending_requirement_backlog():
+            return False
+        if follow_up and follow_up.needs_more_work:
             return False
         if self.spec and self.spec.cycles:
             completed_spec_cycles = self.progress.completed_spec_cycle_count()

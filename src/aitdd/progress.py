@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .hook_policy import PhaseTestResult
-from .review import ReviewGate
+from .review import FollowUpReview, MissingTestPerspective, ReviewGate
 
 
 @dataclass
@@ -26,6 +26,7 @@ class CycleProgress:
     green: dict[str, Any] | None = None
     refactor: dict[str, Any] | None = None
     review_gate: dict[str, Any] | None = None
+    follow_up: dict[str, Any] | None = None
     issues: list[str] = field(default_factory=list)
 
 
@@ -72,7 +73,11 @@ class ProgressStore:
         cycle.review_gate = asdict(review_gate)
         cycle.issues = review_gate.issues
         self._upsert(cycle)
-        self._record_missing_test_perspectives(cycle.index, review_gate)
+        self._record_test_perspectives(
+            cycle.index,
+            review_gate.missing_test_perspectives,
+            "review",
+        )
         self.append_report(
             "\n### Review Gate\n\n"
             f"- one_behavior_only: `{review_gate.one_behavior_only}`\n"
@@ -90,12 +95,41 @@ class ProgressStore:
             )
             self.append_report(f"\n### Missing Test Perspectives\n\n{body}\n")
 
+    def record_follow_up(self, cycle: CycleProgress, follow_up: FollowUpReview) -> None:
+        cycle.follow_up = asdict(follow_up)
+        self._upsert(cycle)
+        self._record_requirements(cycle.index, follow_up)
+        self._record_test_perspectives(
+            cycle.index,
+            follow_up.additional_test_perspectives,
+            "follow_up",
+        )
+        self.append_report(
+            "\n### Follow Up\n\n"
+            f"- requirements_sufficient: `{follow_up.requirements_sufficient}`\n"
+            f"- needs_more_requirements: `{follow_up.needs_more_requirements}`\n"
+            f"- needs_more_tests: `{follow_up.needs_more_tests}`\n"
+        )
+        if follow_up.missing_requirements:
+            body = "\n".join(
+                f"- `{item.priority}` {item.requirement}: {item.suggested_behavior}"
+                for item in follow_up.missing_requirements
+            )
+            self.append_report(f"\n### Missing Requirements\n\n{body}\n")
+        if follow_up.additional_test_perspectives:
+            body = "\n".join(
+                f"- `{item.priority}` {item.behavior}: {item.suggested_test}"
+                for item in follow_up.additional_test_perspectives
+            )
+            self.append_report(f"\n### Follow Up Test Perspectives\n\n{body}\n")
+
     def finish_cycle(self, cycle: CycleProgress, status: str) -> None:
         cycle.status = status
         cycle.finished_at = datetime.now(UTC).isoformat()
         self._upsert(cycle)
         if cycle.backlog_item_id and status == "completed":
             self.complete_test_perspective(cycle.backlog_item_id)
+            self.complete_requirement(cycle.backlog_item_id)
         self.append_report(f"\n### Result\n\n`{status}`\n")
 
     def fail_cycle(self, cycle: CycleProgress | None, error: BaseException) -> None:
@@ -134,6 +168,27 @@ class ProgressStore:
     def has_pending_test_backlog(self) -> bool:
         return bool(self.pending_test_perspectives())
 
+    def pending_requirements(self) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in self.data.get("requirements_backlog", [])
+            if item.get("status") == "pending"
+        ]
+
+    def has_pending_requirement_backlog(self) -> bool:
+        return bool(self.pending_requirements())
+
+    def claim_next_requirement(self, cycle_index: int) -> dict[str, Any] | None:
+        for item in self.data.get("requirements_backlog", []):
+            if item.get("status") != "pending":
+                continue
+            item["status"] = "in_progress"
+            item["planned_cycle"] = cycle_index
+            item["planned_at"] = datetime.now(UTC).isoformat()
+            self._write()
+            return item
+        return None
+
     def claim_next_test_perspective(self, cycle_index: int) -> dict[str, Any] | None:
         for item in self.data.get("test_backlog", []):
             if item.get("status") != "pending":
@@ -147,6 +202,15 @@ class ProgressStore:
 
     def complete_test_perspective(self, item_id: str) -> None:
         for item in self.data.get("test_backlog", []):
+            if item.get("id") != item_id:
+                continue
+            item["status"] = "completed"
+            item["completed_at"] = datetime.now(UTC).isoformat()
+            self._write()
+            return
+
+    def complete_requirement(self, item_id: str) -> None:
+        for item in self.data.get("requirements_backlog", []):
             if item.get("id") != item_id:
                 continue
             item["status"] = "completed"
@@ -169,23 +233,25 @@ class ProgressStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.progress_path.exists():
-            return {"cycles": [], "test_backlog": []}
+            return {"cycles": [], "test_backlog": [], "requirements_backlog": []}
         data = json.loads(self.progress_path.read_text())
         data.setdefault("cycles", [])
         data.setdefault("test_backlog", [])
+        data.setdefault("requirements_backlog", [])
         return data
 
-    def _record_missing_test_perspectives(
+    def _record_test_perspectives(
         self,
         source_cycle: int,
-        review_gate: ReviewGate,
+        perspectives: list[MissingTestPerspective],
+        source: str,
     ) -> None:
-        if not review_gate.missing_test_perspectives:
+        if not perspectives:
             return
 
         backlog = self.data.setdefault("test_backlog", [])
         existing = {_test_perspective_key(item) for item in backlog}
-        for perspective in review_gate.missing_test_perspectives:
+        for perspective in perspectives:
             item = asdict(perspective)
             if not item["behavior"] or not item["suggested_test"]:
                 continue
@@ -195,6 +261,36 @@ class ProgressStore:
             item.update(
                 {
                     "id": f"{source_cycle:03d}-{len(backlog) + 1:03d}",
+                    "status": "pending",
+                    "source": source,
+                    "source_cycle": source_cycle,
+                    "discovered_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            backlog.append(item)
+            existing.add(key)
+        self._write()
+
+    def _record_requirements(
+        self,
+        source_cycle: int,
+        follow_up: FollowUpReview,
+    ) -> None:
+        if not follow_up.missing_requirements:
+            return
+
+        backlog = self.data.setdefault("requirements_backlog", [])
+        existing = {_requirement_key(item) for item in backlog}
+        for requirement in follow_up.missing_requirements:
+            item = asdict(requirement)
+            if not item["requirement"] or not item["suggested_behavior"]:
+                continue
+            key = _requirement_key(item)
+            if key in existing:
+                continue
+            item.update(
+                {
+                    "id": f"req-{source_cycle:03d}-{len(backlog) + 1:03d}",
                     "status": "pending",
                     "source_cycle": source_cycle,
                     "discovered_at": datetime.now(UTC).isoformat(),
@@ -262,4 +358,11 @@ def _test_perspective_key(item: dict[str, Any]) -> tuple[str, str]:
     return (
         str(item.get("behavior") or "").strip().lower(),
         str(item.get("suggested_test") or "").strip().lower(),
+    )
+
+
+def _requirement_key(item: dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(item.get("requirement") or "").strip().lower(),
+        str(item.get("suggested_behavior") or "").strip().lower(),
     )
