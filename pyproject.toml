@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aitdd"
-version = "0.1.5"
+version = "0.1.6"
 description = "A small Codex-planned, Cursor-implemented TDD loop with Codex hook guards."
 readme = "README.md"
 requires-python = ">=3.10"

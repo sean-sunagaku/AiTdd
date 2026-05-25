@@ -101,7 +101,11 @@ Cycle sources are explicit:
 
 - `src/aitdd/cli.py`: CLI commands (`plan`, `run`, `resume`)
 - `src/aitdd/planning.py`: Codex-generated `aitdd.yaml` drafts
-- `src/aitdd/runner.py`: RED-GREEN-REFACTOR orchestration
+- `src/aitdd/runner.py`: thin RED-GREEN-REFACTOR orchestration
+- `src/aitdd/subjects.py`: next-cycle subject selection from questions, backlogs, spec, or Codex
+- `src/aitdd/decision.py`: completion, continuation, and clarification decisions
+- `src/aitdd/prompts.py`: Codex and Cursor prompt construction
+- `src/aitdd/testing.py`: subprocess test execution and refactor test-file guard
 - `src/aitdd/review.py`: Review, Follow Up, and structured JSON schemas
 - `src/aitdd/progress.py`: progress persistence, reports, diff snapshots, backlogs
 - `src/aitdd/hook_policy.py`: phase policy checks
