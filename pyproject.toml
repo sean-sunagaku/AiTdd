@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aitdd"
-version = "0.1.7"
+version = "0.1.8"
 description = "A small Codex-planned, Cursor-implemented TDD loop with Codex hook guards."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aitdd = "aitdd.cli:main"
+aitdd = "aitdd.interfaces.cli:main"
 
 [dependency-groups]
 dev = [

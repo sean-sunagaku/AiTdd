@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from aitdd.agents import AgentResult
-from aitdd.planning import draft_spec_yaml
-from aitdd.spec import AitddSpec
+from aitdd.application.planning import draft_spec_yaml
+from aitdd.domain.spec import AitddSpec
+from aitdd.infrastructure.agents import AgentResult
 
 
 class FakePlanner:

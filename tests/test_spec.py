@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from aitdd.spec import AitddSpec
+from aitdd.domain.spec import AitddSpec
 
 
 def test_spec_loads_cycles_and_expected_red_failures(tmp_path: Path) -> None:

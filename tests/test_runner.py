@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from aitdd.agents import AgentResult
-from aitdd.review import PASSING_FOLLOW_UP_JSON, PASSING_REVIEW_JSON
-from aitdd.runner import TddLoop, TddLoopConfig
+from aitdd.application.loop import TddLoop, TddLoopConfig
+from aitdd.domain.review import PASSING_FOLLOW_UP_JSON, PASSING_REVIEW_JSON
+from aitdd.infrastructure.agents import AgentResult
 
 
 class FakeAgent:

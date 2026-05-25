@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from aitdd.progress import ProgressStore
-from aitdd.spec import AitddSpec
-from aitdd.subjects import CycleSubjectSelector
+from aitdd.application.subjects import CycleSubjectSelector
+from aitdd.domain.spec import AitddSpec
+from aitdd.infrastructure.progress import ProgressStore
 
 
 def test_cycle_subject_selector_prioritizes_requirement_backlog(tmp_path: Path) -> None:

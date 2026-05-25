@@ -8,7 +8,7 @@ import subprocess
 
 from codex_hookkit import PostToolUseInput, PostToolUseOutput, deny
 
-from aitdd.hook_policy import PhaseTestResult, TddPhase, evaluate_phase
+from aitdd.domain.policy import PhaseTestResult, TddPhase, evaluate_phase
 
 
 def main() -> int:

@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from aitdd.decision import CycleDecider
-from aitdd.progress import ProgressStore
-from aitdd.review import FollowUpReview, ReviewGate, UserQuestion
-from aitdd.subjects import CycleSubject
+from aitdd.application.decision import CycleDecider
+from aitdd.application.subjects import CycleSubject
+from aitdd.domain.review import FollowUpReview, ReviewGate, UserQuestion
+from aitdd.infrastructure.progress import ProgressStore
 
 
 def _review_gate(complete: bool = True) -> ReviewGate:

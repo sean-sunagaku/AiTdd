@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from aitdd.testing import WorkspaceTester
+from aitdd.infrastructure.testing import WorkspaceTester
 
 
 def test_workspace_tester_runs_command(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
-from aitdd.hook_policy import PhaseTestResult, TddPhase
-from aitdd.prompts import PromptBuilder
-from aitdd.subjects import CycleSubject
+from aitdd.application.prompts import PromptBuilder
+from aitdd.application.subjects import CycleSubject
+from aitdd.domain.policy import PhaseTestResult, TddPhase
 
 
 def test_prompt_builder_renders_follow_up_clarification_gate_instruction() -> None:

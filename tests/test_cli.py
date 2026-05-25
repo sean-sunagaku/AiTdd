@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from aitdd.cli import main
-from aitdd.spec import AitddSpec
+from aitdd.domain.spec import AitddSpec
+from aitdd.interfaces.cli import main
 
 
 def test_plan_dry_run_writes_valid_spec(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -99,8 +99,9 @@ Cycle sources are explicit:
 
 ## Package Layout
 
-The physical layout follows a DDD-style split. The top-level modules such as
-`aitdd.runner` and `aitdd.review` remain as compatibility facades.
+The physical layout follows a DDD-style split. Top-level compatibility facade
+modules such as `aitdd.runner` and `aitdd.review` are intentionally not shipped.
+Import from the layer that owns the concept.
 
 - `domain/`: pure policy and data models
   - `domain/policy.py`: phase policy checks

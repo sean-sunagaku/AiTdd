@@ -1,4 +1,5 @@
 import importlib
+import importlib.util
 from pathlib import Path
 
 
@@ -23,14 +24,24 @@ def test_ddd_package_layout_exists() -> None:
         importlib.import_module(module)
 
 
-def test_legacy_imports_remain_as_compatibility_facades() -> None:
-    from aitdd.review import ReviewGate
-    from aitdd.runner import TddLoop
-    from aitdd.spec import AitddSpec
+def test_legacy_facade_modules_are_removed() -> None:
+    removed_modules = [
+        "aitdd.agents",
+        "aitdd.cli",
+        "aitdd.decision",
+        "aitdd.hook_policy",
+        "aitdd.planning",
+        "aitdd.progress",
+        "aitdd.prompts",
+        "aitdd.review",
+        "aitdd.runner",
+        "aitdd.spec",
+        "aitdd.subjects",
+        "aitdd.testing",
+    ]
 
-    assert TddLoop.__module__ == "aitdd.application.loop"
-    assert ReviewGate.__module__ == "aitdd.domain.review"
-    assert AitddSpec.__module__ == "aitdd.domain.spec"
+    for module in removed_modules:
+        assert importlib.util.find_spec(module) is None
 
 
 def test_architecture_doc_names_ddd_layers() -> None:

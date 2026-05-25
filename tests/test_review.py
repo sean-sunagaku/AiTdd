@@ -1,4 +1,4 @@
-from aitdd.review import FollowUpReview, ReviewGate
+from aitdd.domain.review import FollowUpReview, ReviewGate
 
 
 def test_review_gate_parses_and_reports_failures() -> None:
