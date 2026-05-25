@@ -99,17 +99,26 @@ Cycle sources are explicit:
 
 ## Package Layout
 
-- `src/aitdd/cli.py`: CLI commands (`plan`, `run`, `resume`)
-- `src/aitdd/planning.py`: Codex-generated `aitdd.yaml` drafts
-- `src/aitdd/runner.py`: thin RED-GREEN-REFACTOR orchestration
-- `src/aitdd/subjects.py`: next-cycle subject selection from questions, backlogs, spec, or Codex
-- `src/aitdd/decision.py`: completion, continuation, and clarification decisions
-- `src/aitdd/prompts.py`: Codex and Cursor prompt construction
-- `src/aitdd/testing.py`: subprocess test execution and refactor test-file guard
-- `src/aitdd/review.py`: Review, Follow Up, and structured JSON schemas
-- `src/aitdd/progress.py`: progress persistence, reports, diff snapshots, backlogs
-- `src/aitdd/hook_policy.py`: phase policy checks
-- `src/aitdd/agents.py`: official Codex SDK and Cursor SDK bridges
+The physical layout follows a DDD-style split. The top-level modules such as
+`aitdd.runner` and `aitdd.review` remain as compatibility facades.
+
+- `domain/`: pure policy and data models
+  - `domain/policy.py`: phase policy checks
+  - `domain/review.py`: Review, Follow Up, and structured JSON schemas
+  - `domain/spec.py`: `aitdd.yaml` domain model
+  - `domain/cycle.py`: shared cycle status concepts
+- `application/`: use cases and orchestration decisions
+  - `application/loop.py`: thin RED-GREEN-REFACTOR orchestration
+  - `application/subjects.py`: next-cycle subject selection
+  - `application/decision.py`: completion, continuation, and clarification decisions
+  - `application/prompts.py`: Codex and Cursor prompt construction
+  - `application/planning.py`: Codex-generated `aitdd.yaml` drafts
+- `infrastructure/`: external adapters and persistence
+  - `infrastructure/agents.py`: official Codex SDK and Cursor SDK bridges
+  - `infrastructure/progress.py`: progress persistence, reports, diff snapshots, backlogs
+  - `infrastructure/testing.py`: subprocess test execution and refactor test-file guard
+- `interfaces/`: user-facing entrypoints
+  - `interfaces/cli.py`: CLI commands (`plan`, `run`, `resume`)
 
 ## Design Rules
 
