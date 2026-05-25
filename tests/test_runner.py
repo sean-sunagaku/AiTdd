@@ -173,12 +173,12 @@ def test_missing_test_perspectives_become_next_red_cycle(tmp_path: Path) -> None
 def test_follow_up_missing_requirement_becomes_next_red_cycle(tmp_path: Path) -> None:
     missing_requirement = (
         '{"requirements_sufficient": false, "needs_more_requirements": true, '
-        '"needs_more_tests": false, "missing_requirements": ['
+        '"needs_more_tests": false, "needs_user_input": false, "missing_requirements": ['
         '{"requirement": "currency must be non-empty", '
         '"reason": "invalid currency values are not specified", '
         '"suggested_behavior": "empty currency is rejected", '
         '"priority": "high"}], '
-        '"additional_test_perspectives": [], "notes": []}'
+        '"additional_test_perspectives": [], "questions_for_user": [], "notes": []}'
     )
     planner = FakeAgent(
         "codex",
@@ -210,3 +210,47 @@ def test_follow_up_missing_requirement_becomes_next_red_cycle(tmp_path: Path) ->
     progress = json.loads((tmp_path / ".aitdd" / "progress.json").read_text())
     assert progress["cycles"][1]["source"] == "requirements_backlog"
     assert progress["requirements_backlog"][0]["status"] == "completed"
+
+
+def test_follow_up_user_question_pauses_the_loop(tmp_path: Path) -> None:
+    user_question = (
+        '{"requirements_sufficient": false, "needs_more_requirements": false, '
+        '"needs_more_tests": false, "needs_user_input": true, '
+        '"missing_requirements": [], "additional_test_perspectives": [], '
+        '"questions_for_user": ['
+        '{"question": "Should negative amount be rejected at construction?", '
+        '"reason": "The invariant is unclear", '
+        '"choices": ["reject at construction", "allow negative amount"], '
+        '"blocks": "negative amount behavior", '
+        '"priority": "high"}], '
+        '"notes": []}'
+    )
+    planner = FakeAgent(
+        "codex",
+        [
+            "plan initial behavior",
+            PASSING_REVIEW_JSON,
+            user_question,
+            "this plan should not run",
+        ],
+    )
+    implementer = FakeAgent("cursor", ["red ok", "green ok"])
+    loop = TddLoop(
+        TddLoopConfig(
+            goal="build Money",
+            workdir=tmp_path,
+            dry_run=True,
+            max_cycles=3,
+        ),
+        planner=planner,
+        implementer=implementer,
+    )
+
+    results = loop.run()
+
+    assert len(results) == 1
+    assert results[0].complete is False
+    progress = json.loads((tmp_path / ".aitdd" / "progress.json").read_text())
+    assert progress["status"] == "needs_user_input"
+    assert progress["cycles"][0]["status"] == "needs_user_input"
+    assert progress["questions_for_user"][0]["blocks"] == "negative amount behavior"

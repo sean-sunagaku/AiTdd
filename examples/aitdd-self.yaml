@@ -2,12 +2,14 @@ goal: |
   AiTDD 自身の機能開発を AiTDD の RED-GREEN-REFACTOR で進める。
   Codex は plan/review/follow up、Cursor は実装を担当する。
   不足テスト観点は test_backlog、不足要件は requirements_backlog に積む。
+  AI が勝手に決めてはいけない仕様判断は questions_for_user に積んで停止する。
 
 public_api:
   - "aitdd plan <goal> --output aitdd.yaml"
   - "aitdd run --spec aitdd.yaml"
   - "aitdd resume --spec aitdd.yaml"
   - ".aitdd/progress.json requirements_backlog"
+  - ".aitdd/progress.json questions_for_user"
 
 constraints:
   - 1 cycle で追加する public behavior は 1 つだけ
@@ -15,6 +17,7 @@ constraints:
   - GREEN はその失敗を通す最小実装だけにする
   - Codex review で見つかった不足テスト観点は test_backlog 経由で次の RED にする
   - Codex follow up で見つかった不足要件は requirements_backlog 経由で次の RED にする
+  - Codex follow up で見つかった曖昧な仕様判断は Clarification Gate で止める
   - REFACTOR フェーズではテストファイルを変更しない
 
 forbidden:
@@ -85,3 +88,16 @@ cycles:
     notes:
       - tests/test_runner.py に follow up 由来の不足要件が次 cycle になる RED を追加する
       - tests/test_review.py に FollowUpReview の JSON parse を追加する
+
+  - behavior: Clarification Gate がユーザー判断待ちで loop を止める
+    expected_red:
+      exit_code: nonzero
+      must_include:
+        - questions_for_user
+        - needs_user_input
+        - AssertionError
+      must_not_include:
+        - SyntaxError
+    notes:
+      - tests/test_runner.py に questions_for_user があると次 cycle に進まない RED を追加する
+      - README と docs/architecture.md に停止条件を明記する

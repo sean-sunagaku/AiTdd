@@ -72,7 +72,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"complete={result.complete} "
                 f"one_behavior_only={result.review_gate.one_behavior_only} "
                 f"minimal_green={result.review_gate.minimal_green} "
-                f"boundary_ok={result.review_gate.acceptance_unit_boundary_ok}"
+                f"boundary_ok={result.review_gate.acceptance_unit_boundary_ok} "
+                f"needs_user_input={result.follow_up.needs_user_input}"
             )
         return 0
     if args.command == "plan":

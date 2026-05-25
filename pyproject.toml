@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aitdd"
-version = "0.1.4"
+version = "0.1.5"
 description = "A small Codex-planned, Cursor-implemented TDD loop with Codex hook guards."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,6 +41,7 @@ allow-direct-references = true
 [tool.hatch.build.targets.sdist]
 include = [
   "/examples",
+  "/docs",
   "/hooks",
   "/src",
   "/tests",

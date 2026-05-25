@@ -110,10 +110,15 @@ REFACTOR 後には Codex Follow Up フェーズを実行します。ここでは
 追加テスト観点は `test_backlog` に積みます。どちらかが残っている場合、完了扱いにせず
 次の RED cycle に進みます。
 
+Follow Up で「AI が勝手に決めてはいけない」と判断した場合は Clarification Gate で止まります。
+質問は `questions_for_user` に保存され、cycle は `needs_user_input` になります。ユーザーの回答を
+spec や backlog に反映してから `resume` します。
+
 実行中の状態は最小構成で次に保存されます。
 
 - `.aitdd/progress.json`: cycle ごとの `behavior`, `red`, `green`, `refactor`, `review_gate`,
-  `follow_up`, `issues`, `started_at`, `finished_at` と `test_backlog` / `requirements_backlog`
+  `follow_up`, `issues`, `started_at`, `finished_at` と `test_backlog` / `requirements_backlog` /
+  `questions_for_user`
 - `.aitdd/cycles/001-red.diff`: phase ごとの git diff snapshot
 - `.aitdd/report.md`: TDD の進行ログ
 
@@ -157,10 +162,13 @@ Codex hook として使う場合は `.codex/hooks.json` などに次を登録し
 6. Codex がレビューし、不足テスト観点があれば `test_backlog` に積む
 7. Cursor が必要なら REFACTOR する
 8. Codex Follow Up が要件漏れと追加テスト観点を振り返る
-9. backlog があれば次の RED に進む
-10. backlog が空で完了条件を満たしたら Codex が完了判定する
+9. ユーザー判断が必要なら Clarification Gate で止める
+10. backlog があれば次の RED に進む
+11. backlog が空で完了条件を満たしたら Codex が完了判定する
 
 `--max-cycles` は安全弁です。完璧を目指しつつ、暴走しないように上限を持たせています。
+
+詳しい設計は [docs/architecture.md](docs/architecture.md) にまとめています。
 
 ## Self Dogfood
 

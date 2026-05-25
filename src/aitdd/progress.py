@@ -104,11 +104,13 @@ class ProgressStore:
             follow_up.additional_test_perspectives,
             "follow_up",
         )
+        self._record_user_questions(cycle.index, follow_up)
         self.append_report(
             "\n### Follow Up\n\n"
             f"- requirements_sufficient: `{follow_up.requirements_sufficient}`\n"
             f"- needs_more_requirements: `{follow_up.needs_more_requirements}`\n"
             f"- needs_more_tests: `{follow_up.needs_more_tests}`\n"
+            f"- needs_user_input: `{follow_up.needs_user_input}`\n"
         )
         if follow_up.missing_requirements:
             body = "\n".join(
@@ -122,6 +124,12 @@ class ProgressStore:
                 for item in follow_up.additional_test_perspectives
             )
             self.append_report(f"\n### Follow Up Test Perspectives\n\n{body}\n")
+        if follow_up.questions_for_user:
+            body = "\n".join(
+                f"- `{item.priority}` {item.question} blocks `{item.blocks}`"
+                for item in follow_up.questions_for_user
+            )
+            self.append_report(f"\n### Questions For User\n\n{body}\n")
 
     def finish_cycle(self, cycle: CycleProgress, status: str) -> None:
         cycle.status = status
@@ -178,6 +186,16 @@ class ProgressStore:
     def has_pending_requirement_backlog(self) -> bool:
         return bool(self.pending_requirements())
 
+    def pending_user_questions(self) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in self.data.get("questions_for_user", [])
+            if item.get("status") == "pending"
+        ]
+
+    def has_pending_user_questions(self) -> bool:
+        return bool(self.pending_user_questions())
+
     def claim_next_requirement(self, cycle_index: int) -> dict[str, Any] | None:
         for item in self.data.get("requirements_backlog", []):
             if item.get("status") != "pending":
@@ -233,11 +251,17 @@ class ProgressStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.progress_path.exists():
-            return {"cycles": [], "test_backlog": [], "requirements_backlog": []}
+            return {
+                "cycles": [],
+                "test_backlog": [],
+                "requirements_backlog": [],
+                "questions_for_user": [],
+            }
         data = json.loads(self.progress_path.read_text())
         data.setdefault("cycles", [])
         data.setdefault("test_backlog", [])
         data.setdefault("requirements_backlog", [])
+        data.setdefault("questions_for_user", [])
         return data
 
     def _record_test_perspectives(
@@ -298,6 +322,36 @@ class ProgressStore:
             )
             backlog.append(item)
             existing.add(key)
+        self._write()
+
+    def _record_user_questions(
+        self,
+        source_cycle: int,
+        follow_up: FollowUpReview,
+    ) -> None:
+        if not follow_up.questions_for_user:
+            return
+
+        questions = self.data.setdefault("questions_for_user", [])
+        existing = {_question_key(item) for item in questions}
+        for question in follow_up.questions_for_user:
+            item = asdict(question)
+            if not item["question"] or not item["blocks"]:
+                continue
+            key = _question_key(item)
+            if key in existing:
+                continue
+            item.update(
+                {
+                    "id": f"q-{source_cycle:03d}-{len(questions) + 1:03d}",
+                    "status": "pending",
+                    "source_cycle": source_cycle,
+                    "asked_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            questions.append(item)
+            existing.add(key)
+        self.data["status"] = "needs_user_input"
         self._write()
 
     def _upsert(self, cycle: CycleProgress) -> None:
@@ -365,4 +419,11 @@ def _requirement_key(item: dict[str, Any]) -> tuple[str, str]:
     return (
         str(item.get("requirement") or "").strip().lower(),
         str(item.get("suggested_behavior") or "").strip().lower(),
+    )
+
+
+def _question_key(item: dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(item.get("question") or "").strip().lower(),
+        str(item.get("blocks") or "").strip().lower(),
     )

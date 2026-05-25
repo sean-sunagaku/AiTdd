@@ -40,6 +40,7 @@ def test_follow_up_review_parses_missing_requirements_and_tests() -> None:
           "requirements_sufficient": false,
           "needs_more_requirements": true,
           "needs_more_tests": true,
+          "needs_user_input": true,
           "missing_requirements": [
             {
               "requirement": "currency must be non-empty",
@@ -56,11 +57,22 @@ def test_follow_up_review_parses_missing_requirements_and_tests() -> None:
               "priority": "low"
             }
           ],
+          "questions_for_user": [
+            {
+              "question": "Should negative amount be rejected at construction?",
+              "reason": "The invariant is unclear",
+              "choices": ["reject at construction", "allow negative amount"],
+              "blocks": "negative amount behavior",
+              "priority": "high"
+            }
+          ],
           "notes": ["follow up needed"]
         }
         """
     )
 
     assert follow_up.needs_more_work
+    assert follow_up.needs_user_input
     assert follow_up.missing_requirements[0].suggested_behavior == "empty currency is rejected"
     assert follow_up.additional_test_perspectives[0].behavior == "amount upper bound"
+    assert follow_up.questions_for_user[0].blocks == "negative amount behavior"

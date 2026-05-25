@@ -136,6 +136,21 @@ class TddLoop:
                 follow_up_text = self._follow_up(index, plan, review, refactor)
                 follow_up = FollowUpReview.from_text(follow_up_text)
                 self.progress.record_follow_up(current_progress, follow_up)
+                if follow_up.needs_user_input:
+                    self.progress.finish_cycle(current_progress, "needs_user_input")
+                    results.append(
+                        CycleResult(
+                            index,
+                            red,
+                            green,
+                            refactor,
+                            False,
+                            review,
+                            review_gate,
+                            follow_up,
+                        )
+                    )
+                    break
                 complete = self._is_complete(review_gate, follow_up, subject)
 
                 if complete:
@@ -363,8 +378,14 @@ returncode: {test_run.returncode}
 確認すること:
 - ゴールや spec に対して、まだ明文化されていない要件がないか
 - 今回の実装に対して、追加で RED にすべき境界値、例外系、責務分離のテストがないか
+- AI が推定して進めるべきではない仕様判断がないか
 - 見つけたものは 1 項目 1 behavior または 1 テスト観点に分ける
 - 既に covered なものは重複して返さない
+
+ユーザー判断が必要な場合:
+- needs_user_input を true にしてください
+- questions_for_user に質問、理由、選択肢、何を block しているかを入れてください
+- 質問が必要な項目は missing_requirements に推測で入れないでください
 
 ゴール:
 {goal}
@@ -395,6 +416,8 @@ returncode: {test_run.returncode}
         if review_gate.needs_more_tests or self.progress.has_pending_test_backlog():
             return False
         if self.progress.has_pending_requirement_backlog():
+            return False
+        if self.progress.has_pending_user_questions():
             return False
         if follow_up and follow_up.needs_more_work:
             return False

@@ -54,6 +54,7 @@ FOLLOW_UP_SCHEMA: dict[str, object] = {
         "requirements_sufficient": {"type": "boolean"},
         "needs_more_requirements": {"type": "boolean"},
         "needs_more_tests": {"type": "boolean"},
+        "needs_user_input": {"type": "boolean"},
         "missing_requirements": {
             "type": "array",
             "items": {
@@ -71,14 +72,31 @@ FOLLOW_UP_SCHEMA: dict[str, object] = {
         "additional_test_perspectives": REVIEW_SCHEMA["properties"][
             "missing_test_perspectives"
         ],
+        "questions_for_user": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "choices": {"type": "array", "items": {"type": "string"}},
+                    "blocks": {"type": "string"},
+                    "priority": {"type": "string"},
+                },
+                "required": ["question", "reason", "choices", "blocks", "priority"],
+                "additionalProperties": False,
+            },
+        },
         "notes": {"type": "array", "items": {"type": "string"}},
     },
     "required": [
         "requirements_sufficient",
         "needs_more_requirements",
         "needs_more_tests",
+        "needs_user_input",
         "missing_requirements",
         "additional_test_perspectives",
+        "questions_for_user",
         "notes",
     ],
     "additionalProperties": False,
@@ -93,8 +111,9 @@ PASSING_REVIEW_JSON = (
 
 PASSING_FOLLOW_UP_JSON = (
     '{"requirements_sufficient": true, "needs_more_requirements": false, '
-    '"needs_more_tests": false, "missing_requirements": [], '
-    '"additional_test_perspectives": [], "notes": []}'
+    '"needs_more_tests": false, "needs_user_input": false, '
+    '"missing_requirements": [], "additional_test_perspectives": [], '
+    '"questions_for_user": [], "notes": []}'
 )
 
 
@@ -111,6 +130,15 @@ class MissingRequirement:
     requirement: str
     reason: str
     suggested_behavior: str
+    priority: str = "medium"
+
+
+@dataclass(frozen=True)
+class UserQuestion:
+    question: str
+    reason: str
+    choices: list[str] = field(default_factory=list)
+    blocks: str = ""
     priority: str = "medium"
 
 
@@ -180,8 +208,10 @@ class FollowUpReview:
     requirements_sufficient: bool
     needs_more_requirements: bool
     needs_more_tests: bool
+    needs_user_input: bool
     missing_requirements: list[MissingRequirement] = field(default_factory=list)
     additional_test_perspectives: list[MissingTestPerspective] = field(default_factory=list)
+    questions_for_user: list[UserQuestion] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @classmethod
@@ -194,19 +224,22 @@ class FollowUpReview:
             _missing_test_perspective(item)
             for item in value.get("additional_test_perspectives", [])
         ]
+        questions = [_user_question(item) for item in value.get("questions_for_user", [])]
         return cls(
             requirements_sufficient=bool(value.get("requirements_sufficient")),
             needs_more_requirements=bool(value.get("needs_more_requirements"))
             or bool(missing_requirements),
             needs_more_tests=bool(value.get("needs_more_tests")) or bool(additional_tests),
+            needs_user_input=bool(value.get("needs_user_input")) or bool(questions),
             missing_requirements=missing_requirements,
             additional_test_perspectives=additional_tests,
+            questions_for_user=questions,
             notes=[str(item) for item in value.get("notes", [])],
         )
 
     @property
     def needs_more_work(self) -> bool:
-        return self.needs_more_requirements or self.needs_more_tests
+        return self.needs_more_requirements or self.needs_more_tests or self.needs_user_input
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:
@@ -238,5 +271,17 @@ def _missing_requirement(value: Any) -> MissingRequirement:
         requirement=str(value.get("requirement") or "").strip(),
         reason=str(value.get("reason") or "").strip(),
         suggested_behavior=str(value.get("suggested_behavior") or "").strip(),
+        priority=str(value.get("priority") or "medium").strip() or "medium",
+    )
+
+
+def _user_question(value: Any) -> UserQuestion:
+    if not isinstance(value, dict):
+        raise ValueError("questions_for_user must contain objects")
+    return UserQuestion(
+        question=str(value.get("question") or "").strip(),
+        reason=str(value.get("reason") or "").strip(),
+        choices=[str(item).strip() for item in value.get("choices", []) if str(item).strip()],
+        blocks=str(value.get("blocks") or "").strip(),
         priority=str(value.get("priority") or "medium").strip() or "medium",
     )
